@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Quick Expense Splitter</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0f172a; --card:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22c55e; --accent2:#60a5fa; }
+  *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--text);background:linear-gradient(180deg,#0b1022,#0f172a)}
+  .wrap{max-width:960px;margin:24px auto;padding:16px}
+  .card{background:rgba(17,24,39,.9);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  h1{font-size:20px;margin:0 0 12px} h2{font-size:16px;margin:16px 0 8px;color:var(--muted)}
+  input,button,textarea,select{border-radius:10px;border:1px solid rgba(255,255,255,.1);background:#0b1220;color:var(--text);padding:10px 12px}
+  button{cursor:pointer;border:none;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#06121a;font-weight:700}
+  button.ghost{background:#0b1220;border:1px solid rgba(255,255,255,.12);color:var(--text)}
+  .grid{display:grid;gap:12px}
+  @media(min-width:720px){ .grid.cols-2{grid-template-columns:1fr 1fr} .grid.cols-3{grid-template-columns:1fr 1fr 1fr} }
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:999px}
+  .muted{color:var(--muted)}
+  .right{display:flex;gap:8px;justify-content:flex-end}
+  .foot{margin-top:12px;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Quick Expense Splitter</h1>
+      <div class="grid cols-2">
+        <div>
+          <h2>People</h2>
+          <div class="row">
+            <input id="personName" placeholder="Add a person (e.g., Alice)" />
+            <button id="addPerson">Add</button>
+            <button id="clearPeople" class="ghost">Clear</button>
+          </div>
+          <div id="people" class="foot"></div>
+
+          <h2 style="margin-top:16px">Add Expense</h2>
+          <div class="grid cols-3">
+            <input id="desc" placeholder="Description (e.g., Dinner)" />
+            <input id="amount" type="number" step="0.01" placeholder="Amount" />
+            <select id="payer"></select>
+          </div>
+          <div class="foot">Select who shares this expense:</div>
+          <div id="shareList" class="row" style="margin-top:6px"></div>
+          <div class="right" style="margin-top:8px">
+            <button id="addExpense">Add Expense</button>
+            <button id="clearExpenses" class="ghost">Clear</button>
+          </div>
+        </div>
+
+        <div>
+          <h2>Expenses</h2>
+          <table id="expensesTable">
+            <thead><tr><th>Item</th><th>Payer</th><th>Amount</th><th>Sharers</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+
+          <h2>Balances</h2>
+          <table id="balanceTable">
+            <thead><tr><th>Person</th><th>Paid</th><th>Share</th><th>Net</th></tr></thead>
+            <tbody></tbody>
+          </table>
+
+          <h2>Settle Up</h2>
+          <table id="settleTable">
+            <thead><tr><th>Debtor</th><th>Creditor</th><th>Amount</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="foot">Positive net = should receive. Negative net = owes.</div>
+        </div>
+      </div>
+      <div class="foot" style="margin-top:16px">
+        Tip: You can embed this app in a Canva website. In Canva → <em>Embed</em> → paste this page URL.
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const state = { people: [], expenses: [] };
+
+function money(n){ return (Math.round(n*100)/100); }
+function fmt(n){ return n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+function renderPeople(){
+  const peopleDiv = $("#people");
+  peopleDiv.innerHTML = state.people.map(p => `<span class="pill">${p}</span>`).join(" ") || '<span class="muted">No people yet</span>';
+  const payer = $("#payer"); payer.innerHTML = state.people.map(p=>`<option>${p}</option>`).join("");
+  const share = $("#shareList");
+  share.innerHTML = state.people.map(p=>`
+    <label class="pill">
+      <input type="checkbox" value="${p}" ${state.people.length? '':'disabled'} />
+      ${p}
+    </label>`).join("") || '<span class="muted">Add people first</span>';
+}
+
+function renderExpenses(){
+  const tbody = $("#expensesTable tbody");
+  tbody.innerHTML = state.expenses.map((e,i)=>`
+    <tr>
+      <td>${e.desc||'-'}</td>
+      <td>${e.payer}</td>
+      <td>$${fmt(e.amount)}</td>
+      <td>${e.participants.join(", ")}</td>
+      <td><button data-i="${i}" class="ghost del">Delete</button></td>
+    </tr>`).join("") || `<tr><td colspan="5" class="muted">No expenses yet</td></tr>`;
+  $$("#expensesTable .del").forEach(b=>b.addEventListener("click", e=>{
+    const i = +e.target.dataset.i; state.expenses.splice(i,1); recompute();
+  }));
+}
+
+function compute(){
+  const paid = Object.fromEntries(state.people.map(p=>[p,0]));
+  const owed = Object.fromEntries(state.people.map(p=>[p,0]));
+  for(const exp of state.expenses){
+    paid[exp.payer] = money(paid[exp.payer] + exp.amount);
+    const m = exp.participants.length || 1;
+    const share = money(exp.amount / m);
+    // distribute shares; last gets remainder to sum exactly
+    let distributed = 0;
+    exp.participants.forEach((p,idx)=>{
+      let s = (idx < m-1) ? share : money(exp.amount - distributed);
+      owed[p] = money(owed[p] + s);
+      distributed = money(distributed + s);
+    });
+  }
+  const nets = Object.fromEntries(state.people.map(p=>[p, money(paid[p]-owed[p])]));
+  return {paid, owed, nets};
+}
+
+function settle(nets){
+  const creditors=[], debtors=[];
+  for(const [p,amt] of Object.entries(nets)){
+    if(amt>0) creditors.push([p,amt]);
+    else if(amt<0) debtors.push([p,-amt]); // store positive
+  }
+  creditors.sort((a,b)=>b[1]-a[1]); debtors.sort((a,b)=>b[1]-a[1]);
+  const tx=[];
+  let i=0,j=0;
+  while(i<debtors.length && j<creditors.length){
+    const [dp,da]=debtors[i], [cp,ca]=creditors[j];
+    const pay = money(Math.min(da,ca));
+    tx.push([dp,cp,pay]);
+    debtors[i][1]=money(da-pay); creditors[j][1]=money(ca-pay);
+    if(debtors[i][1]===0) i++; if(creditors[j][1]===0) j++;
+  }
+  return tx;
+}
+
+function renderResults(){
+  const {paid, owed, nets} = compute();
+  // balances
+  const bt = $("#balanceTable tbody");
+  bt.innerHTML = state.people.map(p=>`
+    <tr><td>${p}</td><td>$${fmt(paid[p])}</td><td>$${fmt(owed[p])}</td><td>${nets[p]>=0?'+':''}$${fmt(nets[p])}</td></tr>
+  `).join("") || `<tr><td colspan="4" class="muted">Add people and expenses</td></tr>`;
+  // settlement
+  const st = $("#settleTable tbody");
+  const tx = settle(nets);
+  st.innerHTML = tx.length ? tx.map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td><td>$${fmt(t[2])}</td></tr>`).join("")
+                           : `<tr><td colspan="3" class="muted">All settled — no transfers needed</td></tr>`;
+}
+
+function recompute(){ renderExpenses(); renderResults(); }
+
+// events
+$("#addPerson").addEventListener("click", ()=>{
+  const name = $("#personName").value.trim();
+  if(!name) return;
+  if(state.people.includes(name)) return alert("Duplicate name.");
+  state.people.push(name);
+  $("#personName").value="";
+  renderPeople(); recompute();
+});
+$("#clearPeople").addEventListener("click", ()=>{
+  if(!confirm("Clear all people?")) return;
+  state.people = []; state.expenses = []; renderPeople(); recompute();
+});
+$("#addExpense").addEventListener("click", ()=>{
+  if(state.people.length===0) return alert("Add people first.");
+  const desc = $("#desc").value.trim();
+  const amount = parseFloat($("#amount").value);
+  const payer = $("#payer").value;
+  const participants = $$("#shareList input:checked").map(i=>i.value);
+  if(!amount || amount<=0) return alert("Enter a valid amount.");
+  if(!payer) return alert("Select a payer.");
+  if(participants.length===0) return alert("Choose at least one sharer.");
+  state.expenses.push({desc, amount: money(amount), payer, participants});
+  $("#desc").value=""; $("#amount").value="";
+  $$("#shareList input").forEach(i=>i.checked=false);
+  recompute();
+});
+$("#clearExpenses").addEventListener("click", ()=>{
+  if(!confirm("Clear all expenses?")) return;
+  state.expenses = []; recompute();
+});
+
+// init
+renderPeople(); renderExpenses(); renderResults();
+</script>
+</body>
+</html>
